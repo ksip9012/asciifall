@@ -27,15 +27,39 @@ Rust 製のターミナルアニメーション。The Matrix 風の緑の文字�
 ## ビルド・実行
 
 ```zsh
-# 開発ビルド
+# 開発用: ビルドして、そのまま実行する
 cargo run
 
-# リリースビルド（最適化済み）
+# リリース用: 最適化してビルドする
 cargo build --release
+
+# ビルドしたバイナリを実行する
 ./target/release/asciifall
 ```
 
 > Rust 環境を [mise](https://mise.jdx.dev/) で管理している場合は `mise use rust@stable` で準備できます。
+
+## インストール
+
+どのディレクトリからでも `asciifall` で実行できるように、`~/.cargo/bin` に配置します。
+
+```zsh
+cargo install --path .
+
+# PATH に通っているかを確かめる（asciifall のパスが表示されれば OK）
+which asciifall
+
+# 実行する
+asciifall
+```
+
+`which` で見つからないときは、`~/.zshrc` に次の行を足してターミナルを開き直してください。
+
+```zsh
+export PATH="$HOME/.cargo/bin:$PATH"
+```
+
+インストール後は、Rust 環境がなくても動作します。
 
 ## 操作
 
