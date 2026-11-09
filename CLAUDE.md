@@ -1,4 +1,4 @@
-# matrix-rain
+# asciifall
 
 マトリックス映画風の落下文字アニメーション。macOS の zsh ターミナルで動作する Rust 製バイナリ。
 
@@ -13,7 +13,7 @@ cargo run
 
 # リリースビルド（最適化済み）
 cargo build --release
-./target/release/matrix-rain
+./target/release/asciifall
 ```
 
 ## 依存クレート

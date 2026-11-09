@@ -1,4 +1,4 @@
-# matrix-rain
+# asciifall
 
 ```
   3   .   K   .   Z   .   Q   .   7
@@ -32,7 +32,7 @@ cargo run
 
 # リリースビルド（最適化済み）
 cargo build --release
-./target/release/matrix-rain
+./target/release/asciifall
 ```
 
 > Rust 環境を [mise](https://mise.jdx.dev/) で管理している場合は `mise use rust@stable` で準備できます。
