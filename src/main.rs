@@ -1,93 +1,68 @@
-// ── 標準ライブラリ ──────────────────────────────────────────────────────────
-// io::Write  : 出力バッファへの書き込みインターフェース
-// Duration   : 時間の長さ（例: 33ミリ秒）
-// Instant    : 現在時刻のスナップショット（経過時間の計測に使う）
 use std::io::{self, Write};
 use std::time::{Duration, Instant};
 
-// ── 外部クレート: crossterm ──────────────────────────────────────────────────
-// crossterm はターミナル（端末）を制御するライブラリ。
-// カーソル移動・色設定・キー入力検知などをクロスプラットフォームで提供する。
 use crossterm::{
     cursor,
     event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
-    execute,
-    queue, // ターミナルへのコマンド送信マクロ
+    execute, queue,
     style::{Color, Print, SetForegroundColor},
     terminal::{self, ClearType},
 };
-
-// ── 外部クレート: rand ────────────────────────────────────────────────────────
-// 乱数生成に使う。文字や速度をランダムに決めるため。
 use rand::Rng;
 
-// ── アニメーション定数 ────────────────────────────────────────────────────────
-const TARGET_FPS: u64 = 30; // 目標フレームレート（毎秒30回描画）
-const FRAME_MS: u64 = 1000 / TARGET_FPS; // 1フレームの時間 = 33ミリ秒
+const TARGET_FPS: u64 = 30;
+const FRAME_MS: u64 = 1000 / TARGET_FPS;
 
-const MIN_TRAIL: u16 = 8; // 落下ストリームの最小の長さ（行数）
-const MAX_TRAIL: u16 = 25; // 落下ストリームの最大の長さ（行数）
+// 軌跡の長さ（行数）
+const MIN_TRAIL: u16 = 8;
+const MAX_TRAIL: u16 = 25;
 
-const MIN_SPEED: u8 = 1; // 最速: 毎tick 1行進む
-const MAX_SPEED: u8 = 3; // 最遅: 3tick に 1行しか進まない
+// 何 tick ごとに 1行進むか（1 が最速）。列ごとに速さを変えて、画面が単調にならないようにする
+const MIN_SPEED: u8 = 1;
+const MAX_SPEED: u8 = 3;
 
-// ── 色の定義（RGB カラー）────────────────────────────────────────────────────
-// 先頭（ヘッド）: 明るい白緑
+// 先頭ほど明るい 3段のグラデーション
 const COLOR_HEAD: Color = Color::Rgb {
     r: 220,
     g: 255,
     b: 220,
 };
-// 先頭近く（近い軌跡）: 鮮やかな緑
 const COLOR_NEAR: Color = Color::Rgb {
     r: 0,
     g: 255,
     b: 70,
 };
-// 末尾付近（遠い軌跡）: 暗い緑
 const COLOR_FAR: Color = Color::Rgb {
     r: 0,
     g: 128,
     b: 35,
 };
 
-// ── 文字プールの生成 ──────────────────────────────────────────────────────────
-// '0'〜'9' と 'A'〜'Z' を連結した Vec<char>（文字の動的配列）を返す。
-// 落下する文字は、このプールからランダムに選ばれる。
 fn build_char_pool() -> Vec<char> {
     ('0'..='9').chain('A'..='Z').collect()
 }
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// struct Drop — 1本の「落下ストリーム」
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// struct は Rust でデータをまとめる型（他言語のクラスのデータ部分に相当）。
-struct Drop {
-    head: i32,         // 先頭文字の現在の行番号（画面上端が0。負値は画面外上方）
-    trail_length: u16, // 軌跡の長さ（文字数）
-    chars: Vec<char>,  // 軌跡に表示されている文字の列（先頭が index 0）
-    speed: u8,         // 速度: この tick 数ごとに 1行進む（1=最速, 3=最遅）
-    tick_counter: u8,  // speed に達するまでカウントするタイマー
+/// 1本の落下する文字の列。
+struct Stream {
+    /// 先頭の行。負の値は画面の上の外にいる
+    head: i32,
+    trail_length: u16,
+    /// 軌跡の文字。`chars[0]` が先頭
+    chars: Vec<char>,
+    speed: u8,
+    tick_counter: u8,
 }
 
-// impl Drop { ... } = Drop 型のメソッド（関数）をまとめるブロック
-impl Drop {
-    // ── コンストラクタ ────────────────────────────────────────────────────────
-    // rng: 乱数生成器、char_pool: 文字プール、height: 画面の高さ
+impl Stream {
     fn new(rng: &mut impl Rng, char_pool: &[char], height: u16) -> Self {
-        // 軌跡の長さをランダムに決める
         let trail_length = rng.random_range(MIN_TRAIL..=MAX_TRAIL);
-
-        // 初期位置: 軌跡全体が画面上方の外から始まり、少し位置をずらす
-        // → 全ストリームが同時に画面上端から現れないようにするため
+        // 画面の上の外から始め、出てくる時刻を列ごとにずらす（全部の列が一斉に現れないように）
         let head = -(trail_length as i32) + rng.random_range(0..=(height / 4)) as i32;
-
-        // 初期文字列をランダムに生成
         let chars = (0..trail_length)
             .map(|_| char_pool[rng.random_range(0..char_pool.len())])
             .collect();
 
-        Drop {
+        Stream {
             head,
             trail_length,
             chars,
@@ -96,16 +71,12 @@ impl Drop {
         }
     }
 
-    // ── 死亡判定 ──────────────────────────────────────────────────────────────
-    // 軌跡の末尾（head - trail_length）が画面下端を超えたら「死亡」とみなす。
-    // 死亡した Drop は Column が削除して新しい Drop に置き換える。
+    /// 軌跡の末尾まで画面の下に抜けたか。
     fn is_dead(&self, height: u16) -> bool {
         self.head - self.trail_length as i32 >= height as i32
     }
 
-    // ── 1tick の描画更新 ──────────────────────────────────────────────────────
-    // x      : この Drop が属する列番号（画面左端が0）
-    // stdout : 描画コマンドをバッファリングする出力先
+    // 画面全体を描き直さず、変わったセル（消える末尾・色が変わる 2か所・新しい先頭）だけを描く
     fn tick(
         &mut self,
         stdout: &mut impl Write,
@@ -113,20 +84,16 @@ impl Drop {
         height: u16,
         char_pool: &[char],
         rng: &mut impl Rng,
-    ) -> std::io::Result<()> {
-        // speed に達していなければ、今tick は何もしない（速度制御）
+    ) -> io::Result<()> {
         self.tick_counter += 1;
         if self.tick_counter < self.speed {
             return Ok(());
         }
         self.tick_counter = 0;
 
-        // 先頭を 1行下へ移動
         let old_head = self.head;
         self.head += 1;
 
-        // ── 末尾の消去 ──────────────────────────────────────────────────────
-        // 軌跡が 1行下にずれたので、一番古い末尾セルをスペースで消す。
         let tail_row = old_head - self.trail_length as i32;
         if tail_row >= 0 && tail_row < height as i32 {
             queue!(
@@ -137,9 +104,7 @@ impl Drop {
             )?;
         }
 
-        // ── 色のグラデーション更新（near→far の境界セル）────────────────────
-        // 先頭から3行上のセルを COLOR_FAR（暗い緑）で再描画する。
-        // こうすることで「先頭に近いほど明るい」グラデーションが生まれる。
+        // 先頭から 3行上で、近い軌跡の色から遠い軌跡の色に変える
         let shift_row = old_head - 3;
         if shift_row >= 0 && shift_row < height as i32 {
             let idx = (self.trail_length as i32 - (old_head - shift_row)) as usize;
@@ -153,8 +118,6 @@ impl Drop {
             }
         }
 
-        // ── 前の先頭セルを COLOR_NEAR（鮮やかな緑）で再描画 ─────────────────
-        // 先頭が 1行下りたので、前の先頭位置は「近い軌跡」になる。
         if old_head >= 0 && old_head < height as i32 {
             queue!(
                 stdout,
@@ -164,9 +127,6 @@ impl Drop {
             )?;
         }
 
-        // ── 新しい先頭セルを COLOR_HEAD（白緑）で描画 ────────────────────────
-        // 新しい文字をランダムに選び、chars の先頭に挿入する。
-        // chars は trail_length 以上にならないよう末尾を切り捨てる。
         if self.head >= 0 && self.head < height as i32 {
             let new_char = char_pool[rng.random_range(0..char_pool.len())];
             self.chars.insert(0, new_char);
@@ -183,27 +143,21 @@ impl Drop {
     }
 }
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// struct Column — 画面の縦1列を管理する
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+/// 画面の縦 1列。前の列が抜けきってから、間をおいて次の列を出す。
 struct Column {
-    x: u16,           // 列番号（画面左端が0）
-    drops: Vec<Drop>, // この列に現在存在する Drop の一覧（複数本が同時に落ちうる）
-    spawn_timer: u32, // 次の Drop が生まれるまでの残りtick数
+    x: u16,
+    streams: Vec<Stream>,
+    /// 次の列を出すまでの残りの tick
+    spawn_timer: u32,
 }
 
 impl Column {
     fn new(x: u16, rng: &mut impl Rng, char_pool: &[char], height: u16) -> Self {
-        let mut col = Column {
+        Column {
             x,
-            drops: Vec::new(),
-            spawn_timer: 0,
-        };
-        // 起動時は各列に1本の Drop を配置する
-        col.drops.push(Drop::new(rng, char_pool, height));
-        // 次の Drop が湧くタイミングをランダムにずらす（画面がバラバラに見えるよう）
-        col.spawn_timer = rng.random_range(20..80);
-        col
+            streams: vec![Stream::new(rng, char_pool, height)],
+            spawn_timer: rng.random_range(20..80),
+        }
     }
 
     fn tick(
@@ -212,20 +166,15 @@ impl Column {
         height: u16,
         char_pool: &[char],
         rng: &mut impl Rng,
-    ) -> std::io::Result<()> {
-        // この列に属する全 Drop を 1tick 進める
-        for drop in &mut self.drops {
-            drop.tick(stdout, self.x, height, char_pool, rng)?;
+    ) -> io::Result<()> {
+        for stream in &mut self.streams {
+            stream.tick(stdout, self.x, height, char_pool, rng)?;
         }
+        self.streams.retain(|s| !s.is_dead(height));
 
-        // 画面外に出た（死亡した）Drop を削除する
-        // retain: 条件を満たす要素だけを残すメソッド
-        self.drops.retain(|d| !d.is_dead(height));
-
-        // Drop がすべて消えたら、タイマーを数えて次の Drop を生成する
-        if self.drops.is_empty() {
+        if self.streams.is_empty() {
             if self.spawn_timer == 0 {
-                self.drops.push(Drop::new(rng, char_pool, height));
+                self.streams.push(Stream::new(rng, char_pool, height));
                 self.spawn_timer = rng.random_range(10..60);
             } else {
                 self.spawn_timer -= 1;
@@ -236,48 +185,37 @@ impl Column {
     }
 }
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// struct Rain — アニメーション全体の状態を保持するトップレベル構造体
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+/// 画面全体。リサイズしたら、列を全部作り直す。
 struct Rain {
-    columns: Vec<Column>, // 全列（画面幅と同じ数だけある）
-    width: u16,           // 現在のターミナル幅（列数）
-    height: u16,          // 現在のターミナル高さ（行数）
-    char_pool: Vec<char>, // 全 Drop で共有する文字プール
+    columns: Vec<Column>,
+    height: u16,
+    char_pool: Vec<char>,
 }
 
 impl Rain {
     fn new(width: u16, height: u16) -> Self {
         let char_pool = build_char_pool();
-        let mut rng = rand::rng();
-        // 幅の分だけ Column を生成する（0列目〜width-1列目）
-        let columns = (0..width)
-            .map(|x| Column::new(x, &mut rng, &char_pool, height))
-            .collect();
+        let columns = Self::build_columns(width, height, &char_pool);
         Rain {
             columns,
-            width,
             height,
             char_pool,
         }
     }
 
-    // ── ターミナルサイズ変更への対応 ──────────────────────────────────────────
-    // リサイズ時は画面を全消去して Column を作り直す。
-    fn resize(&mut self, width: u16, height: u16) {
-        self.width = width;
-        self.height = height;
-        let char_pool = build_char_pool();
+    fn build_columns(width: u16, height: u16, char_pool: &[char]) -> Vec<Column> {
         let mut rng = rand::rng();
-        self.columns = (0..width)
-            .map(|x| Column::new(x, &mut rng, &char_pool, height))
-            .collect();
-        self.char_pool = char_pool;
+        (0..width)
+            .map(|x| Column::new(x, &mut rng, char_pool, height))
+            .collect()
     }
 
-    // ── 1フレーム分の更新 ────────────────────────────────────────────────────
-    // 全 Column を 1tick 進める。実際の画面への反映は stdout.flush() が行う。
-    fn tick(&mut self, stdout: &mut impl Write) -> std::io::Result<()> {
+    fn resize(&mut self, width: u16, height: u16) {
+        self.height = height;
+        self.columns = Self::build_columns(width, height, &self.char_pool);
+    }
+
+    fn tick(&mut self, stdout: &mut impl Write) -> io::Result<()> {
         let mut rng = rand::rng();
         for col in &mut self.columns {
             col.tick(stdout, self.height, &self.char_pool, &mut rng)?;
@@ -286,94 +224,67 @@ impl Rain {
     }
 }
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// struct TerminalGuard — ターミナル状態の安全な復元を保証する番人
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// Rust の「RAII」パターン: TerminalGuard がスコープを抜けるとき（プログラム終了
-// やパニック時でも）に自動で drop() が呼ばれ、ターミナルを元の状態に戻す。
-// これにより「q で終了したらターミナルが壊れたまま」という問題を防ぐ。
+/// 生きているあいだ、ターミナルを raw mode と代替スクリーンにしておく。
+/// 抜けるとき（パニックを含む）に元に戻すので、終わったあとにターミナルが壊れたままにならない。
 struct TerminalGuard;
 
 impl TerminalGuard {
-    // ターミナルを「アニメーション用モード」にセットアップする。
-    // - enable_raw_mode: キー入力を1文字ずつ即時受信できるモード
-    // - EnterAlternateScreen: 通常の画面と切り替わる別バッファ（終了後に元に戻る）
-    // - cursor::Hide: カーソルを非表示にしてちらつきを防ぐ
-    fn setup(stdout: &mut impl Write) -> std::io::Result<Self> {
+    fn setup(stdout: &mut impl Write) -> io::Result<Self> {
         terminal::enable_raw_mode()?;
         execute!(stdout, terminal::EnterAlternateScreen, cursor::Hide)?;
         Ok(TerminalGuard)
     }
 }
 
-// Drop トレイト = Rust でオブジェクト破棄時に呼ばれるデストラクタ
-// TerminalGuard が破棄されるときに必ずターミナルを元に戻す
-impl std::ops::Drop for TerminalGuard {
+impl Drop for TerminalGuard {
     fn drop(&mut self) {
         let mut stdout = io::stdout();
         let _ = execute!(
             stdout,
             SetForegroundColor(Color::Reset),
-            terminal::LeaveAlternateScreen, // 元の画面バッファに戻る
-            cursor::Show                    // カーソルを再表示
+            terminal::LeaveAlternateScreen,
+            cursor::Show
         );
         let _ = terminal::disable_raw_mode();
     }
 }
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// fn run() — メインループ（エラーを Result で返す）
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-fn run() -> std::io::Result<()> {
+fn run() -> io::Result<()> {
     let mut stdout = io::stdout();
-
-    // TerminalGuard を生成してターミナルを設定する。
-    // _guard は使わないが、この変数がスコープにある限り自動クリーンアップが保証される。
     let _guard = TerminalGuard::setup(&mut stdout)?;
 
     let (width, height) = terminal::size()?;
     let mut rain = Rain::new(width, height);
 
-    // ── メインループ ─────────────────────────────────────────────────────────
     loop {
         let frame_start = Instant::now();
 
-        // キューに溜まったイベント（キー押下・リサイズ）を全部処理する
-        // poll(Duration::ZERO) = ブロックせず「今すぐイベントがあるか」を確認
+        // 描画を止めないよう、待たずにたまったイベントだけを読む
         while event::poll(Duration::ZERO)? {
             match event::read()? {
-                // 'q' キー → 終了
                 Event::Key(KeyEvent {
                     code: KeyCode::Char('q'),
                     ..
                 }) => return Ok(()),
-
-                // Ctrl+C → 終了
+                // raw mode では Ctrl+C がシグナルにならず、キーとして届く
                 Event::Key(KeyEvent {
                     code: KeyCode::Char('c'),
                     modifiers: KeyModifiers::CONTROL,
                     ..
                 }) => return Ok(()),
-
-                // ターミナルのリサイズ → 画面を再構築
                 Event::Resize(w, h) => {
                     execute!(stdout, terminal::Clear(ClearType::All))?;
                     rain.resize(w, h);
                 }
-
-                // その他のイベントは無視
                 _ => {}
             }
         }
 
-        // 1フレーム分のアニメーションを描画バッファに書き込む
         rain.tick(&mut stdout)?;
-
-        // バッファを実際の画面に一括反映する（ちらつき防止のため一気に出力）
+        // 1フレーム分をまとめて出して、ちらつきを防ぐ
         stdout.flush()?;
 
-        // フレームレートを TARGET_FPS に合わせるためスリープする
-        // 描画に時間がかかったフレームはスリープなし（追いつきを優先）
+        // 描画に時間がかかったフレームは待たずに次へ進む
         let elapsed = frame_start.elapsed().as_millis() as u64;
         if elapsed < FRAME_MS {
             std::thread::sleep(Duration::from_millis(FRAME_MS - elapsed));
@@ -381,11 +292,6 @@ fn run() -> std::io::Result<()> {
     }
 }
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// fn main() — エントリーポイント
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// run() がエラーを返したときだけここで表示して異常終了する。
-// 正常終了は run() が Ok(()) を返すと自動的に main() が終わる。
 fn main() {
     if let Err(e) = run() {
         eprintln!("Error: {e}");
