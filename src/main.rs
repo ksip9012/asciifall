@@ -21,6 +21,9 @@ const MAX_TRAIL: u16 = 25;
 const MIN_SPEED: u8 = 1;
 const MAX_SPEED: u8 = 3;
 
+// 先頭から何行を、近い軌跡の色にするか
+const NEAR_ROWS: i32 = 3;
+
 // 先頭ほど明るい 3段のグラデーション
 const COLOR_HEAD: Color = Color::Rgb {
     r: 220,
@@ -95,13 +98,12 @@ impl Stream {
             color: Color::Reset,
         });
 
-        // 先頭から 3行上で、近い軌跡の色から遠い軌跡の色に変える
-        let shift_row = old_head - 3;
-        let idx = (self.trail_length as i32 - (old_head - shift_row)) as usize;
-        if idx < self.chars.len() {
+        // 先頭から NEAR_ROWS 行上で、近い軌跡の色から遠い軌跡の色に変える。
+        // chars[k] が先頭から k 行上の文字なので、同じ文字のまま色だけを変えられる
+        if let Some(&ch) = self.chars.get(NEAR_ROWS as usize) {
             cells.push(Cell {
-                row: shift_row,
-                ch: self.chars[idx],
+                row: old_head - NEAR_ROWS,
+                ch,
                 color: COLOR_FAR,
             });
         }
@@ -112,10 +114,12 @@ impl Stream {
             color: COLOR_NEAR,
         });
 
+        // 先頭が画面の下に抜けたあとも chars はずらす。ずらさないと、行と chars[k] の対応がずれ、
+        // 残りの軌跡を描き直すときに別の文字になる
+        let new_char = char_pool[rng.random_range(0..char_pool.len())];
+        self.chars.insert(0, new_char);
+        self.chars.truncate(self.trail_length as usize);
         if self.head >= 0 && self.head < height as i32 {
-            let new_char = char_pool[rng.random_range(0..char_pool.len())];
-            self.chars.insert(0, new_char);
-            self.chars.truncate(self.trail_length as usize);
             cells.push(Cell {
                 row: self.head,
                 ch: new_char,
@@ -388,6 +392,47 @@ mod tests {
         assert_eq!((head.row, head.color), (11, COLOR_HEAD));
         assert_eq!(s.chars[0], head.ch);
         assert_eq!(s.chars.len(), 8);
+    }
+
+    #[test]
+    fn far_color_keeps_the_same_char() {
+        // #7: 先頭から 3行上（chars[3]）の文字を、色だけ変えて描き直す
+        let mut rng = rng();
+        let pool = build_char_pool();
+        let mut s = stream(10, "ABCDEFGH", 1);
+        let cells = s.advance(&pool, &mut rng, 20);
+        assert!(cells.contains(&Cell {
+            row: 7,
+            ch: 'D',
+            color: COLOR_FAR
+        }));
+    }
+
+    #[test]
+    fn redrawn_cells_never_change_the_char_on_screen() {
+        // 画面を文字の表で再現し、色を変えるために描き直すセルの文字が、
+        // すでに出ている文字と同じかを確かめる（先頭が画面の下に抜けたあとも含む）
+        let mut rng = rng();
+        let pool = build_char_pool();
+        let height = 30;
+        for _ in 0..50 {
+            let mut s = Stream::new(&mut rng, &pool, height);
+            let mut screen: Vec<Option<char>> = vec![None; height as usize];
+            while !s.is_dead(height) {
+                for cell in s.advance(&pool, &mut rng, height) {
+                    if cell.row < 0 || cell.row >= height as i32 {
+                        continue;
+                    }
+                    let shown = &mut screen[cell.row as usize];
+                    if (cell.color == COLOR_NEAR || cell.color == COLOR_FAR)
+                        && let Some(c) = *shown
+                    {
+                        assert_eq!(c, cell.ch, "{} 行目の文字が描き替わった", cell.row);
+                    }
+                    *shown = (cell.ch != ' ').then_some(cell.ch);
+                }
+            }
+        }
     }
 
     #[test]
