@@ -1,10 +1,20 @@
+# チェックの中身は mise.toml の [tasks.check] に書く（手元・pre-commit と同じコマンド）。
+# この YAML は「チェックアウト → mise で版をそろえる → mise run check」だけにする（dotfiles の decisions/0003-checks-in-mise-tasks）
 name: CI
-on: [push, pull_request]
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
 jobs:
-  build:
+  check:
     runs-on: ubuntu-latest
+    env:
+      # mise は信頼していない設定ファイルを読まないので、このリポジトリの mise.toml を信頼させる
+      MISE_TRUSTED_CONFIG_PATHS: ${{ github.workspace }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - run: cargo build --release
-      - run: cargo clippy -- -D warnings
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v5
+      - run: mise run check

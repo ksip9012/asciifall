@@ -1,0 +1,8 @@
+# GitHub Actions の版だけを月 1回上げる（dotfiles の decisions/0005-dependabot-actions-only）。
+# 言語の依存のセキュリティの修正は、リポジトリの設定の security updates で PR が来る
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"

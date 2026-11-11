@@ -1,0 +1,10 @@
+# CI と同じ mise run check をコミットの前に動かす（中身は mise.toml の [tasks.check]）
+repos:
+  - repo: local
+    hooks:
+      - id: check
+        name: mise run check
+        entry: mise run check
+        language: system
+        pass_filenames: false
+        always_run: true

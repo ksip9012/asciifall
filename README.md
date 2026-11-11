@@ -37,7 +37,7 @@ cargo build --release
 ./target/release/asciifall
 ```
 
-> Rust 環境を [mise](https://mise.jdx.dev/) で管理している場合は `mise use rust@stable` で準備できます。
+> Rust の版は [mise](https://mise.jdx.dev/) の `mise.toml` で決めています。mise を使う場合は `mise install` で準備でき、`mise run check` で format・clippy・テストを動かせます。
 
 ## インストール
 
