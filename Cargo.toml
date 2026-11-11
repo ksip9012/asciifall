@@ -2,6 +2,8 @@
 name = "asciifall"
 version = "0.1.0"
 edition = "2024"
+# 最低限必要な版。mise.toml の [tools] の版と同じにする（cargo は依存を選ぶときにこの版で動くものを選ぶ）
+rust-version = "1.99"
 
 [dependencies]
 crossterm = "0.28"

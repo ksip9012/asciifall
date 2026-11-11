@@ -5,8 +5,13 @@
 ## ビルドと実行
 
 ```zsh
-# mise で Rust 環境をアクティベート（初回のみ）
-mise use rust@stable
+# mise で Rust（mise.toml の版と clippy・rustfmt）と pre-commit を入れる（初回のみ）
+mise trust
+mise install
+pre-commit install
+
+# format・clippy・テスト（CI・pre-commit と同じ）
+mise run check
 
 # 開発ビルド（動作確認）
 cargo run

@@ -11,7 +11,8 @@ use std::time::{Duration, Instant};
 use crossterm::{
     cursor,
     event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
-    execute, queue,                                  // ターミナルへのコマンド送信マクロ
+    execute,
+    queue, // ターミナルへのコマンド送信マクロ
     style::{Color, Print, SetForegroundColor},
     terminal::{self, ClearType},
 };
@@ -21,22 +22,34 @@ use crossterm::{
 use rand::Rng;
 
 // ── アニメーション定数 ────────────────────────────────────────────────────────
-const TARGET_FPS: u64 = 30;                  // 目標フレームレート（毎秒30回描画）
-const FRAME_MS: u64 = 1000 / TARGET_FPS;    // 1フレームの時間 = 33ミリ秒
+const TARGET_FPS: u64 = 30; // 目標フレームレート（毎秒30回描画）
+const FRAME_MS: u64 = 1000 / TARGET_FPS; // 1フレームの時間 = 33ミリ秒
 
-const MIN_TRAIL: u16 = 8;   // 落下ストリームの最小の長さ（行数）
-const MAX_TRAIL: u16 = 25;  // 落下ストリームの最大の長さ（行数）
+const MIN_TRAIL: u16 = 8; // 落下ストリームの最小の長さ（行数）
+const MAX_TRAIL: u16 = 25; // 落下ストリームの最大の長さ（行数）
 
-const MIN_SPEED: u8 = 1;    // 最速: 毎tick 1行進む
-const MAX_SPEED: u8 = 3;    // 最遅: 3tick に 1行しか進まない
+const MIN_SPEED: u8 = 1; // 最速: 毎tick 1行進む
+const MAX_SPEED: u8 = 3; // 最遅: 3tick に 1行しか進まない
 
 // ── 色の定義（RGB カラー）────────────────────────────────────────────────────
 // 先頭（ヘッド）: 明るい白緑
-const COLOR_HEAD: Color = Color::Rgb { r: 220, g: 255, b: 220 };
+const COLOR_HEAD: Color = Color::Rgb {
+    r: 220,
+    g: 255,
+    b: 220,
+};
 // 先頭近く（近い軌跡）: 鮮やかな緑
-const COLOR_NEAR: Color = Color::Rgb { r: 0, g: 255, b: 70 };
+const COLOR_NEAR: Color = Color::Rgb {
+    r: 0,
+    g: 255,
+    b: 70,
+};
 // 末尾付近（遠い軌跡）: 暗い緑
-const COLOR_FAR: Color = Color::Rgb { r: 0, g: 128, b: 35 };
+const COLOR_FAR: Color = Color::Rgb {
+    r: 0,
+    g: 128,
+    b: 35,
+};
 
 // ── 文字プールの生成 ──────────────────────────────────────────────────────────
 // '0'〜'9' と 'A'〜'Z' を連結した Vec<char>（文字の動的配列）を返す。
@@ -50,11 +63,11 @@ fn build_char_pool() -> Vec<char> {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // struct は Rust でデータをまとめる型（他言語のクラスのデータ部分に相当）。
 struct Drop {
-    head: i32,            // 先頭文字の現在の行番号（画面上端が0。負値は画面外上方）
-    trail_length: u16,    // 軌跡の長さ（文字数）
-    chars: Vec<char>,     // 軌跡に表示されている文字の列（先頭が index 0）
-    speed: u8,            // 速度: この tick 数ごとに 1行進む（1=最速, 3=最遅）
-    tick_counter: u8,     // speed に達するまでカウントするタイマー
+    head: i32,         // 先頭文字の現在の行番号（画面上端が0。負値は画面外上方）
+    trail_length: u16, // 軌跡の長さ（文字数）
+    chars: Vec<char>,  // 軌跡に表示されている文字の列（先頭が index 0）
+    speed: u8,         // 速度: この tick 数ごとに 1行進む（1=最速, 3=最遅）
+    tick_counter: u8,  // speed に達するまでカウントするタイマー
 }
 
 // impl Drop { ... } = Drop 型のメソッド（関数）をまとめるブロック
@@ -174,9 +187,9 @@ impl Drop {
 // struct Column — 画面の縦1列を管理する
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 struct Column {
-    x: u16,            // 列番号（画面左端が0）
-    drops: Vec<Drop>,  // この列に現在存在する Drop の一覧（複数本が同時に落ちうる）
-    spawn_timer: u32,  // 次の Drop が生まれるまでの残りtick数
+    x: u16,           // 列番号（画面左端が0）
+    drops: Vec<Drop>, // この列に現在存在する Drop の一覧（複数本が同時に落ちうる）
+    spawn_timer: u32, // 次の Drop が生まれるまでの残りtick数
 }
 
 impl Column {
@@ -227,10 +240,10 @@ impl Column {
 // struct Rain — アニメーション全体の状態を保持するトップレベル構造体
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 struct Rain {
-    columns: Vec<Column>,  // 全列（画面幅と同じ数だけある）
-    width: u16,            // 現在のターミナル幅（列数）
-    height: u16,           // 現在のターミナル高さ（行数）
-    char_pool: Vec<char>,  // 全 Drop で共有する文字プール
+    columns: Vec<Column>, // 全列（画面幅と同じ数だけある）
+    width: u16,           // 現在のターミナル幅（列数）
+    height: u16,          // 現在のターミナル高さ（行数）
+    char_pool: Vec<char>, // 全 Drop で共有する文字プール
 }
 
 impl Rain {
@@ -241,7 +254,12 @@ impl Rain {
         let columns = (0..width)
             .map(|x| Column::new(x, &mut rng, &char_pool, height))
             .collect();
-        Rain { columns, width, height, char_pool }
+        Rain {
+            columns,
+            width,
+            height,
+            char_pool,
+        }
     }
 
     // ── ターミナルサイズ変更への対応 ──────────────────────────────────────────
@@ -296,8 +314,8 @@ impl std::ops::Drop for TerminalGuard {
         let _ = execute!(
             stdout,
             SetForegroundColor(Color::Reset),
-            terminal::LeaveAlternateScreen,  // 元の画面バッファに戻る
-            cursor::Show                     // カーソルを再表示
+            terminal::LeaveAlternateScreen, // 元の画面バッファに戻る
+            cursor::Show                    // カーソルを再表示
         );
         let _ = terminal::disable_raw_mode();
     }

@@ -1,2 +1,29 @@
 [tools]
-rust = "stable"
+# 版の選び方: Rust は最新の版に固定する。毎年 11月に見直す（dotfiles の decisions/0007-language-versions）
+# clippy と rustfmt は rustup の profile によっては入らないので、明示する
+rust = { version = "1.99", components = "clippy,rustfmt" }
+# common の .pre-commit-config.yaml を動かすため（Go と同じく、Rust には開発用の依存で入れる仕組みがない）
+pre-commit = "4.7"
+
+# 手元・pre-commit・CI で同じチェックを動かす（dotfiles の decisions/0003-checks-in-mise-tasks）
+[tasks.check]
+description = "format・clippy・テスト"
+run = [
+  "cargo fmt --check",
+  "cargo clippy --all-targets -- -D warnings",
+  "cargo test",
+]
+
+[tasks.fix]
+description = "format"
+run = "cargo fmt"
+
+# ライブラリを上げる。作業を始めるときに、本来の作業とは別のコミットで回す
+# （よく触るリポジトリは月 1回まで。dotfiles の decisions/0008-tool-and-library-upgrades）
+# Cargo.toml の範囲の中で上げる。範囲を超えて上げるときは、Cargo.toml を書き換える
+[tasks.upgrade]
+description = "Cargo.lock のライブラリを最新にしてチェックする"
+run = [
+  "cargo update",
+  "mise run check",
+]
