@@ -25,18 +25,19 @@ cargo build --release
 
 - `crossterm` — ターミナル制御（raw mode・ANSI カラー・カーソル・リサイズイベント）
 - `rand` — 落下パラメータのランダム生成
+- `clap` — コマンドラインの引数（`--speed`・`--chars`・`--color`）
 
 ## プロジェクト構成
 
 ```
-src/main.rs   — 全実装（単一ファイル、~300行）
+src/main.rs   — 全実装と単体テスト（単一ファイル、~600行）
 ```
 
 ## 主要な概念
 
 - **Column** — ターミナル幅に対応する縦の列
 - **Stream** — 列内を落下する文字ストリーム
-- **Tick** — 1アニメーションステップ（33ms = 30fps 目標）
+- **Tick** — 1アニメーションステップ（既定は 33ms = 30fps。`--speed` で 15〜60fps）
 - **speed** — Stream が N tick ごとに1行進む速度
 
 ## 操作
